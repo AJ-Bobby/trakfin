@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrakFin</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14181f;--mu:#5d6675;--bd:#e2e5ea;--ac:#0b7a5b;--bar:#e9ecf0;--er:#b42318;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1318;--card:#171c23;--tx:#eceff4;--mu:#9aa4b2;--bd:#262d37;--ac:#3ecf9f;--bar:#232a34;--er:#ff7b72;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,sans-serif}
+main{max-width:960px;margin:0 auto;padding:18px 14px 40px}h1{margin:0;font-size:22px}h2{font-size:15px;margin:0 0 10px}
+.sub{color:var(--mu);margin:2px 0 14px}.grid{display:grid;gap:14px}@media(min-width:760px){.grid{grid-template-columns:1fr 1fr}.full{grid-column:1/-1}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px}
+.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--bd);white-space:nowrap}th{color:var(--mu);font-size:12px;font-weight:500}
+button{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--tx);padding:8px 12px;border-radius:8px;cursor:pointer}button.p{background:var(--ac);color:#fff;border-color:var(--ac)}
+input,select{font:inherit;padding:8px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);min-width:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}.form{display:grid;gap:8px;grid-template-columns:1fr 1fr}.w{grid-column:1/-1}
+.bar{height:10px;background:var(--bar);border-radius:6px;overflow:hidden;margin:4px 0 10px}.bar i{display:block;height:100%;background:var(--ac)}.lbl{display:flex;justify-content:space-between;font-size:13px}
+#msg{color:var(--er);margin-top:8px}.mu{color:var(--mu)}
+</style></head><body><main>
+<h1>TrakFin</h1><p class="sub">Send and track your money: approve once, pay automatically, and see where it went.</p>
+<div class="grid">
+<section class="card full"><b id="gs"></b>
+<div class="row"><input id="lim" type="number" min="1" placeholder="Monthly limit"><button class="p" id="auth"></button><button id="run">Run this month’s payments</button></div><div id="msg"></div></section>
+<section class="card"><h2>Payment plan</h2><div class="scroll"><table id="pl"></table></div>
+<h2 style="margin-top:14px">Add recipient</h2>
+<div class="form"><input id="fn" placeholder="Name"><select id="fc"><option>Housing</option><option>Savings</option><option>Bills</option><option>Food</option><option>School</option><option>Other</option></select>
+<input id="fw" class="w" placeholder="Recipient wallet address URL"><input id="fa" type="number" min="0" step="any" placeholder="Amount"><button id="add">Add</button></div></section>
+<section class="card"><h2>Statement</h2><div class="row" style="margin:0 0 10px"><button id="pm">This month</button><button id="pw">This week</button></div><div id="st"></div></section>
+<section class="card full"><h2>Ledger</h2><div class="scroll"><table id="ld"></table></div></section>
+</div></main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api=async(p,m='GET',b)=>{const r=await fetch(p,{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined});const j=await r.json();if(!r.ok)throw new Error(j.error||'Request failed');return j};
+const money=(n,a)=>(a?a.code+' ':'')+Number(n).toFixed(2);
+let S,P='month';
+async function load(){S=await api('/api/state');draw()}
+function draw(){
+ const A=S.asset,month=new Date().toISOString().slice(0,7),mp=S.ledger.filter(l=>l.month===month&&l.st==='Paid');
+ const paid=id=>mp.some(l=>l.rid===id);
+ $('#gs').textContent=S.granted?'Automatic payments approved, limit '+money(S.limit,A)+' per month':'No grant yet. Set a monthly limit and approve it in your wallet.';
+ $('#auth').textContent=S.granted?'Revoke grant':'Authorise';
+ $('#pm').className=P==='month'?'p':'';$('#pw').className=P==='week'?'p':'';
+ $('#pl').innerHTML='<tr><th>Recipient</th><th>Category</th><th>Amount</th><th>Status</th><th></th></tr>'+S.recipients.map(r=>`<tr><td>${esc(r.n)}</td><td>${esc(r.c)}</td><td>${money(r.a)}</td><td>${paid(r.id)?'Paid':'Due'}</td><td><button data-d="${r.id}">✕</button></td></tr>`).join('');
+ const wk=P==='week',sp=wk?S.ledger.filter(l=>l.st==='Paid'&&Date.now()-new Date(l.ts)<6048e5):mp;
+ const cats=[...new Set([...S.recipients.map(r=>r.c),...sp.map(l=>l.c)])];let plan=0;const sent=sp.reduce((s,l)=>s+l.a,0),fees=sp.reduce((s,l)=>s+(l.debit-l.a),0);
+ let h=cats.map(c=>{const p=S.recipients.filter(r=>r.c===c).reduce((s,r)=>s+r.a,0),a=sp.filter(l=>l.c===c).reduce((s,l)=>s+l.a,0);plan+=p;const den=wk?sent:p;
+  return `<div class="lbl"><span>${esc(c)}</span><span>${wk?money(a):money(a)+' of '+money(p)}</span></div><div class="bar"><i style="width:${den?Math.min(100,a/den*100):0}%"></i></div>`}).join('');
+ h+=`<p>${wk?'':'Plan followed: <b>'+(plan?Math.round(sent/plan*100):0)+'%</b> &nbsp; '}Sent: <b>${money(sent,A)}</b> &nbsp; Fees: <b>${money(Math.max(0,fees),A)}</b></p>`;
+ $('#st').innerHTML=h||'<span class="mu">Add recipients to see your statement.</span>';
+ $('#ld').innerHTML='<tr><th>Month</th><th>To</th><th>Amount</th><th>Result</th></tr>'+(S.ledger.slice(0,15).map(l=>`<tr><td>${esc(l.month)}</td><td>${esc(l.n)}</td><td>${money(l.a)}</td><td>${esc(l.st)} ${esc(l.why||'')}</td></tr>`).join('')||'<tr><td colspan="4" class="mu">No payments yet.</td></tr>');
+}
+const fail=e=>{$('#msg').textContent=e.message};
+$('#auth').onclick=async()=>{$('#msg').textContent='';try{if(S.granted){await api('/api/grant/revoke','POST');return load()}
+ const j=await api('/api/grant/start','POST',{limit:$('#lim').value});location.href=j.redirect}catch(e){fail(e)}};
+$('#run').onclick=async()=>{$('#msg').textContent='Running payments…';try{await api('/api/run','POST');$('#msg').textContent='';await load()}catch(e){fail(e)}};
+$('#add').onclick=async()=>{try{await api('/api/recipients','POST',{n:$('#fn').value.trim(),w:$('#fw').value.trim(),a:$('#fa').value,c:$('#fc').value});['#fn','#fw','#fa'].forEach(i=>$(i).value='');load()}catch(e){fail(e)}};
+$('#pl').onclick=async e=>{const d=e.target.dataset.d;if(d){await api('/api/recipients/'+d,'DELETE');load()}};
+$('#pm').onclick=()=>{P='month';draw()};$('#pw').onclick=()=>{P='week';draw()};
+const q=new URLSearchParams(location.search);if(q.get('grant')==='denied')$('#msg').textContent='Grant was not approved.';if(q.get('grant')==='error')$('#msg').textContent=q.get('msg');
+load();
+</script></body></html>
